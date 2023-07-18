@@ -1,0 +1,131 @@
+version: '3'
+
+services:
+  nginx:
+    image: 'nginx:alpine'
+    networks:
+      - hunter-ai-api
+    ports:
+      - '${APP_PORT:-80}:80'
+    volumes:
+      - '.:/var/www/html'
+      - './docker/nginx/nginx.conf:/etc/nginx/nginx.conf'
+      - './docker/nginx/conf.d:/etc/nginx/conf.d'
+    depends_on:
+      - api
+  
+  api:
+    build: 
+      context: .
+      dockerfile: docker/api/Dockerfile
+      target: 'local'
+    image: 'hunter-ai-api:latest'
+    networks:
+      - hunter-ai-api
+    volumes:
+      - '.:/var/www/html'
+      - './docker/api/php.ini:/usr/local/etc/php/php.ini'
+      - './docker/ssh:/home/www/.ssh'
+      - './docker/api/.bashrc:/home/www/.bashrc'
+    depends_on:
+      - mysql
+      - redis
+
+  horizon:
+    image: 'hunter-ai-api:latest'
+    command: 'php artisan horizon'
+    networks:
+      - hunter-ai-api
+    volumes:
+      - '.:/var/www/html'
+      - './docker/api/php.ini:/usr/local/etc/php/php.ini'
+      - './docker/ssh:/home/www/.ssh'
+      - './docker/api/.bashrc:/home/www/.bashrc'
+    depends_on:
+      - mysql
+      - redis
+
+  mysql:
+    image: 'mysql:8.0'
+    ports:
+      - '${FORWARD_DB_PORT:-3306}:3306'
+    command: --innodb-use-native-aio=0
+    environment:
+      MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
+      MYSQL_DATABASE: '${DB_DATABASE}'
+      MYSQL_USER: '${DB_USERNAME}'
+      MYSQL_PASSWORD: '${DB_PASSWORD}'
+      MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+    volumes:
+      - 'mysql:/var/lib/mysql'
+      - '.:/var/www/html'
+    networks:
+      - hunter-ai-api
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-p${DB_PASSWORD}"]
+      retries: 3
+      timeout: 5s
+
+  redis:
+    image: 'redis:alpine'
+    ports:
+      - '${FORWARD_REDIS_PORT:-6379}:6379'
+    volumes:
+      - 'redis:/data'
+    networks:
+      - hunter-ai-api
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      retries: 3
+      timeout: 5s
+
+  mailhog:
+    image: 'mailhog/mailhog:latest'
+    ports:
+      - '${FORWARD_MAILHOG_PORT:-1025}:1025'
+      - '${FORWARD_MAILHOG_DASHBOARD_PORT:-8025}:8025'
+    networks:
+      - hunter-ai-api
+
+  #meilisearch:
+  #  image: 'getmeili/meilisearch:latest'
+  #  ports:
+  #    - '${FORWARD_MEILISEARCH_PORT:-7700}:7700'
+  #  volumes:
+  #    - 'meilisearch:/data.ms'
+  #  networks:
+  #    - hunter-ai-api
+  #  healthcheck:
+  #    test: ["CMD", "wget", "--no-verbose", "--spider", "http://localhost:7700/health"]
+  #    retries: 3
+  #    timeout: 5s
+
+  phpmyadmin:
+    image: phpmyadmin
+    ports:
+      - '${FORWARD_PHPMYADMIN_PORT:-8080}:80'
+    environment:
+      - PMA_HOST=mysql
+    networks:
+      - hunter-ai-api
+
+  phpredisadmin:
+    image: 'erikdubbelboer/phpredisadmin'
+    ports:
+      - '${FORWARD_PHPREDISADMIN_PORT:-8081}:80'
+    environment:
+      - REDIS_1_HOST=redis
+    networks:
+      - hunter-ai-api
+
+volumes:
+  mysql:
+    driver: local
+  redis:
+    driver: local
+  meilisearch:
+    driver: local
+
+networks:
+  hunter-ai-api:
+    driver: bridge
